@@ -239,8 +239,11 @@ def port_aloha(
     mode: Literal["video", "image"] = "image",
     dataset_config: DatasetConfig = DEFAULT_DATASET_CONFIG,
 ):
-    if (HF_LEROBOT_HOME / repo_id).exists():
-        shutil.rmtree(HF_LEROBOT_HOME / repo_id)
+    # Creating the dataset replaces the output directory. Never let that remove
+    # the input files, including when raw_dir reaches them through a symlink.
+    output_dir = HF_LEROBOT_HOME / repo_id
+    if raw_dir.resolve().is_relative_to(output_dir.resolve()):
+        raise ValueError("raw_dir must not be the output dataset directory or a directory inside it")
 
     if not raw_dir.exists():
         if raw_repo_id is None:
@@ -248,6 +251,14 @@ def port_aloha(
         snapshot_download(repo_id=raw_repo_id, repo_type="dataset", local_dir=raw_dir)
 
     hdf5_files = sorted(raw_dir.glob("episode_*.hdf5"))
+    if not hdf5_files:
+        raise ValueError(f"No episode_*.hdf5 files found in {raw_dir}")
+    if episodes is not None:
+        if not episodes:
+            raise ValueError("episodes must contain at least one episode index")
+        for episode_index in episodes:
+            if not 0 <= episode_index < len(hdf5_files):
+                raise ValueError(f"Episode index {episode_index} is out of range for {len(hdf5_files)} input episodes")
 
     dataset = create_empty_dataset(
         repo_id,
